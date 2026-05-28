@@ -146,3 +146,55 @@ class ScanSummary(BaseModel):
         if self.completed_at is None:
             return None
         return (self.completed_at - self.started_at).total_seconds()
+
+
+# -----------------------------------------------------------------------------
+# Change detection (Month 2)
+# -----------------------------------------------------------------------------
+class AssetIdentity(BaseModel):
+    """Stable identity of an asset across scans.
+
+    Two assets are considered "the same" iff their ``(asset_type, value)``
+    pair matches (case-insensitive on ``value``). ``source_tool`` and
+    ``extra`` are carried for context in alerts but never for equality.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    asset_type: AssetType
+    value: str = Field(..., min_length=1, max_length=512)
+    source_tool: str = ""
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+    def key(self) -> tuple[str, str]:
+        return (self.asset_type.value, self.value.lower())
+
+
+class ScanDiff(BaseModel):
+    """Result of comparing a scan against the previous completed scan.
+
+    ``previous_scan_id is None`` means this is the baseline scan for the
+    target — every asset is new by definition, but operators usually do
+    not want a "1432 new assets" pager at midnight, so notifiers should
+    treat ``is_baseline`` specially.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    scan_id: int
+    target: str
+    previous_scan_id: int | None
+    new: list[AssetIdentity] = Field(default_factory=list)
+    removed: list[AssetIdentity] = Field(default_factory=list)
+
+    @property
+    def is_baseline(self) -> bool:
+        return self.previous_scan_id is None
+
+    @property
+    def total_changes(self) -> int:
+        return len(self.new) + len(self.removed)
+
+    @property
+    def has_changes(self) -> bool:
+        return self.total_changes > 0
