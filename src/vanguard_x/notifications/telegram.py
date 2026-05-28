@@ -22,7 +22,15 @@ import httpx
 
 from vanguard_x.config import Settings
 from vanguard_x.logging_setup import get_logger
-from vanguard_x.models import AssetIdentity, Finding, ScanDiff, ScanStatus, ScanSummary, Severity
+from vanguard_x.models import (
+    AnalysisReport,
+    AssetIdentity,
+    Finding,
+    ScanDiff,
+    ScanStatus,
+    ScanSummary,
+    Severity,
+)
 
 _log = get_logger(__name__)
 
@@ -147,6 +155,10 @@ class TelegramNotifier:
             _log.error("telegram.send_report_failed", error=str(exc), path=str(path))
             return False
 
+    async def send_analysis_summary(self, report: AnalysisReport) -> bool:
+        """Send executive summary and top attack path."""
+        return await self._post_message(self._render_analysis_summary(report))
+
     # ------------------------------------------------------------------
     async def _post_message(self, html_text: str) -> bool:
         if not self.enabled:
@@ -253,10 +265,32 @@ class TelegramNotifier:
         if finding.description:
             lines.append(f"Description: {html.escape(finding.description[:200])}")
         if finding.evidence:
-            evidence_str = ", ".join(
-                f"{k}={v}" for k, v in list(finding.evidence.items())[:3]
-            )
+            evidence_str = ", ".join(f"{k}={v}" for k, v in list(finding.evidence.items())[:3])
             lines.append(f"Evidence: <code>{html.escape(evidence_str[:200])}</code>")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_analysis_summary(report: AnalysisReport) -> str:
+        """Render an analysis report for Telegram HTML."""
+        lines: list[str] = [
+            "<b>VANGUARD-X ANALYSIS REPORT</b>",
+            f"Target: <code>{html.escape(report.target)}</code>",
+            f"Findings analyzed: <b>{report.findings_analyzed}</b>",
+            "",
+            f"<b>Executive Summary:</b>\n{html.escape(report.executive_summary[:500])}",
+        ]
+
+        if report.attack_paths:
+            top_path = max(report.attack_paths, key=lambda ap: ap.exploitability_score)
+            lines.append("")
+            lines.append("<b>Top Attack Path:</b>")
+            lines.append(f"Title: <code>{html.escape(top_path.title)}</code>")
+            lines.append(f"Severity: <b>{html.escape(top_path.severity.value.upper())}</b>")
+            lines.append(f"Exploitability: <b>{top_path.exploitability_score:.2f}</b>")
+            lines.append("Steps:")
+            for step in top_path.steps:
+                lines.append(f"  - {html.escape(step)}")
+
         return "\n".join(lines)
 
 

@@ -8,6 +8,7 @@ plumbing such as subprocess or HTTP clients.
 
 from __future__ import annotations
 
+from vanguard_x.agents.analyze import AnalyzeAgent
 from vanguard_x.agents.recon import ReconAgent
 
-__all__ = ["ReconAgent"]
+__all__ = ["AnalyzeAgent", "ReconAgent"]
