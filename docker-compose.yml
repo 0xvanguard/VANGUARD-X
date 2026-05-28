@@ -1,0 +1,146 @@
+# =============================================================================
+# VANGUARD-X — docker-compose (Phase 1 / Month 1)
+#
+# Architecture:
+#   - core               : Python orchestrator (RECON agent)
+#   - nmap               : isolated Nmap container (long-running, exec target)
+#   - theharvester       : isolated theHarvester container (long-running)
+#
+# Security notes:
+#   - Each tool container runs as a non-root user with a read-only root fs.
+#   - Tool containers join an internal-only network; only `core` has egress
+#     out to scan targets and to the Telegram / Anthropic APIs.
+#   - The core service mounts /var/run/docker.sock (read-only) only when
+#     VANGUARDX_TOOL_RUNNER=docker_exec. Comment out that mount otherwise.
+#
+# Network model:
+#   - vanguardx_internal : tool containers + core (no external egress)
+#   - vanguardx_egress   : core only — outbound to internet (scan targets)
+# =============================================================================
+
+name: vanguardx
+
+services:
+  # ---------------------------------------------------------------------------
+  # Core orchestrator
+  # ---------------------------------------------------------------------------
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vanguardx/core:0.1.0
+    container_name: vanguardx-core
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      VANGUARDX_DATA_DIR: /data
+      VANGUARDX_NMAP_CONTAINER: vanguardx-nmap
+      VANGUARDX_HARVESTER_CONTAINER: vanguardx-harvester
+    volumes:
+      - vanguardx_data:/data
+      # Read-only docker socket: only needed when TOOL_RUNNER=docker_exec.
+      # Comment this line out if you use TOOL_RUNNER=local.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - vanguardx_internal
+      - vanguardx_egress
+    depends_on:
+      nmap:
+        condition: service_healthy
+      theharvester:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Default action: print help. Override for actual scans, e.g.:
+    #   docker compose run --rm core scan --target example.com
+    command: ["--help"]
+
+  # ---------------------------------------------------------------------------
+  # Isolated Nmap container — exec target
+  # ---------------------------------------------------------------------------
+  nmap:
+    build:
+      context: ./docker
+      dockerfile: nmap.Dockerfile
+    image: vanguardx/nmap:0.1.0
+    container_name: vanguardx-nmap
+    restart: unless-stopped
+    networks:
+      # Nmap needs egress to actually probe targets.
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    # Nmap's syn scan needs CAP_NET_RAW; we drop everything else.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD", "nmap", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Isolated theHarvester container
+  # ---------------------------------------------------------------------------
+  theharvester:
+    build:
+      context: ./docker
+      dockerfile: harvester.Dockerfile
+    image: vanguardx/harvester:0.1.0
+    container_name: vanguardx-harvester
+    restart: unless-stopped
+    networks:
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+      - /home/vanguard:size=32M,mode=0700,uid=10003,gid=10003
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "theHarvester", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# =============================================================================
+volumes:
+  vanguardx_data:
+    name: vanguardx_data
+
+networks:
+  vanguardx_internal:
+    name: vanguardx_internal
+    driver: bridge
+    internal: true
+  vanguardx_egress:
+    name: vanguardx_egress
+    driver: bridge

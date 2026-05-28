@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sT -sV -oX - example.com" start="1700000000"
+         startstr="Sun Jan  1 00:00:00 2024" version="7.94" xmloutputversion="1.05">
+  <scaninfo type="connect" protocol="tcp" numservices="1000" services="1-1000"/>
+  <verbose level="0"/>
+  <debugging level="0"/>
+  <host starttime="1700000000" endtime="1700000020">
+    <status state="up" reason="user-set" reason_ttl="0"/>
+    <address addr="93.184.216.34" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="example.com" type="user"/>
+    </hostnames>
+    <ports>
+      <extraports state="closed" count="998">
+        <extrareasons reason="conn-refused" count="998"/>
+      </extraports>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack" reason_ttl="0"/>
+        <service name="http" product="nginx" version="1.18.0" method="probed" conf="10"/>
+      </port>
+      <port protocol="tcp" portid="443">
+        <state state="open" reason="syn-ack" reason_ttl="0"/>
+        <service name="https" product="nginx" version="1.18.0" tunnel="ssl"
+                 method="probed" conf="10"/>
+      </port>
+      <port protocol="tcp" portid="22">
+        <state state="closed" reason="conn-refused" reason_ttl="0"/>
+      </port>
+    </ports>
+    <times srtt="100000" rttvar="50000" to="300000"/>
+  </host>
+  <runstats>
+    <finished time="1700000020" timestr="Sun Jan  1 00:00:20 2024" elapsed="20"/>
+    <hosts up="1" down="0" total="1"/>
+  </runstats>
+</nmaprun>

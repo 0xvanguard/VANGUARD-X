@@ -1,0 +1,36 @@
+*******************************************************************
+*  _   _                                            _             *
+* | |_| |__   ___    /\  /\__ _ _ ____   _____ ___ | |_ ___  _ __  *
+*******************************************************************
+* theHarvester 4.5.0 — passive recon                              *
+*******************************************************************
+
+[*] Target: example.com
+
+[*] Searching CRTSH..
+[*] Searching DuckDuckGo..
+
+[*] Hosts found: 4
+---------------------
+www.example.com:93.184.216.34
+api.example.com:93.184.216.40
+mail.example.com:93.184.216.50
+example.com:93.184.216.34
+
+[*] Emails found: 3
+-----------------
+admin@example.com
+security@example.com
+[email protected]
+
+[*] IPs found: 2
+--------------
+93.184.216.34
+93.184.216.40
+
+# noise that should be ignored:
+http://google.com/some-search-result
+[email protected]
+attacker.com (referenced in some snippet)
+
+[*] Done.
