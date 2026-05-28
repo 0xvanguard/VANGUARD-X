@@ -75,6 +75,8 @@ class PipelineOrchestrator:
         analysis_report: AnalysisReport | None = None
         if analyze and self._analyze is not None:
             analysis_report = await self._analyze.run(target, scan_id=attack_summary.scan_id)
+        elif analyze and self._analyze is None:
+            _log.warning("pipeline.analyze_skipped", reason="no analyze agent configured")
 
         return PipelineResult(
             recon_summary=recon_summary,

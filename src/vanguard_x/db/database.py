@@ -344,6 +344,20 @@ class ScanRepository:
     # ------------------------------------------------------------------
     # Analysis reports (Phase 3 Month 5)
     # ------------------------------------------------------------------
+    async def get_latest_completed_scan_id(self, target: str) -> int | None:
+        """Return the id of the most recent DONE scan for a target, or None."""
+        async with self._db.session() as s:
+            stmt = (
+                select(ScanRow.id)
+                .where(ScanRow.target == target)
+                .where(ScanRow.status == ScanStatus.DONE.value)
+                .order_by(ScanRow.id.desc())
+                .limit(1)
+            )
+            res = await s.execute(stmt)
+            row = res.scalars().first()
+        return row
+
     async def save_analysis_report(
         self, report: AnalysisReport, *, scan_id: int | None = None
     ) -> str:

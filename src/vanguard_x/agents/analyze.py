@@ -10,6 +10,7 @@ Handles chunking for large finding sets (>50 findings).
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -193,6 +194,8 @@ class AnalyzeAgent:
         api_key: str,
         model: str = "claude-opus-4-5",
     ) -> None:
+        if not api_key.strip():
+            raise ValueError("api_key must not be empty or whitespace-only")
         self._repository = repository
         self._notifier = notifier
         self._api_key = api_key
@@ -229,25 +232,10 @@ class AnalyzeAgent:
             return await self._repository.list_findings(scan_id)
 
         # Get most recent completed scan for target
-        from sqlalchemy import select
-
-        from vanguard_x.db.schema import ScanRow
-        from vanguard_x.models import ScanStatus
-
-        async with self._repository._db.session() as s:
-            stmt = (
-                select(ScanRow)
-                .where(ScanRow.target == target)
-                .where(ScanRow.status == ScanStatus.DONE.value)
-                .order_by(ScanRow.id.desc())
-                .limit(1)
-            )
-            res = await s.execute(stmt)
-            scan = res.scalars().first()
-
-        if scan is None:
+        latest_scan_id = await self._repository.get_latest_completed_scan_id(target)
+        if latest_scan_id is None:
             return []
-        return await self._repository.list_findings(scan.id)
+        return await self._repository.list_findings(latest_scan_id)
 
     async def _analyze_findings(self, target: str, findings: list[FindingRow]) -> AnalysisReport:
         """Run the LLM analysis, with chunking for large finding sets."""
@@ -263,7 +251,7 @@ class AnalyzeAgent:
 
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=4096,
+            max_tokens=8192,
             system=_SYSTEM_PROMPT,
             tools=[
                 {
@@ -275,6 +263,7 @@ class AnalyzeAgent:
             messages=[{"role": "user", "content": user_message}],
         )
 
+        self._check_stop_reason(response, "produce_analysis_report")
         data = self._extract_tool_use(response, "produce_analysis_report")
         return self._build_report(target, data, len(findings))
 
@@ -289,7 +278,7 @@ class AnalyzeAgent:
 
             response = await self._client.messages.create(
                 model=self._model,
-                max_tokens=4096,
+                max_tokens=8192,
                 system=_TRIAGE_ONLY_SYSTEM_PROMPT,
                 tools=[
                     {
@@ -301,6 +290,7 @@ class AnalyzeAgent:
                 messages=[{"role": "user", "content": user_message}],
             )
 
+            self._check_stop_reason(response, "produce_triage_batch")
             batch_data = self._extract_tool_use(response, "produce_triage_batch")
             triage_items: list[dict[str, Any]] = batch_data.get("triage", [])
             all_triage.extend(triage_items)
@@ -309,12 +299,12 @@ class AnalyzeAgent:
         synthesis_prompt = (
             "Based on the following triage results, identify attack paths, "
             "provide an executive summary, and create a remediation plan.\n\n"
-            f"Triage results:\n{all_triage}"
+            f"Triage results:\n{json.dumps(all_triage, indent=2)}"
         )
 
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=4096,
+            max_tokens=8192,
             system=_SYSTEM_PROMPT,
             tools=[
                 {
@@ -326,6 +316,7 @@ class AnalyzeAgent:
             messages=[{"role": "user", "content": synthesis_prompt}],
         )
 
+        self._check_stop_reason(response, "produce_analysis_report")
         final_data = self._extract_tool_use(response, "produce_analysis_report")
 
         # Combine triage + final synthesis
@@ -362,6 +353,14 @@ class AnalyzeAgent:
                 return block.input
         msg = f"No tool_use block with name '{tool_name}' found in response"
         raise ValueError(msg)
+
+    @staticmethod
+    def _check_stop_reason(response: anthropic.types.Message, tool_name: str) -> None:
+        """Raise if response was truncated due to max_tokens."""
+        if response.stop_reason == "max_tokens":
+            raise RuntimeError(
+                f"Anthropic response truncated (max_tokens reached) for tool '{tool_name}'"
+            )
 
     @staticmethod
     def _build_report(target: str, data: dict[str, Any], findings_count: int) -> AnalysisReport:
