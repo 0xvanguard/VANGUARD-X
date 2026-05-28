@@ -66,15 +66,20 @@ herramienta externa corre en un contenedor aislado y endurecido.
                                        ▼
                             ┌───────────────────────┐
                             │     ReconAgent        │
-                            │  (orchestrates run)   │
+                            │ (parallel via gather) │
                             └──────────┬────────────┘
             ┌──────────────────────────┼──────────────────────────┐
             ▼                          ▼                          ▼
       ┌───────────┐             ┌──────────────┐           ┌──────────────┐
-      │  Nmap     │             │ theHarvester │   ...     │ (Phase 2:    │
-      │ wrapper   │             │   wrapper    │           │  nuclei,     │
-      └─────┬─────┘             └──────┬───────┘           │  gobuster…)  │
-            │                          │                   └──────────────┘
+      │  Nmap     │             │ theHarvester │           │  Subfinder   │
+      │ wrapper   │             │   wrapper    │           │   wrapper    │
+      └─────┬─────┘             └──────┬───────┘           └──────┬───────┘
+            │                          │                          │
+            ▼                          ▼                          ▼
+      ┌───────────┐             ┌──────────────┐           ┌──────────────┐
+      │  WhatWeb  │             │   wafw00f    │           │ (Phase 2:    │
+      │ wrapper   │             │   wrapper    │           │  attack)     │
+      └─────┬─────┘             └──────┬───────┘           └──────────────┘
             │     CommandRunner        │
             │  ┌─────────────────────┐ │
             └──┤ LocalRunner (dev)   │─┘
@@ -87,9 +92,9 @@ herramienta externa corre en un contenedor aislado y endurecido.
                    ┌─────────────┐       ┌──────────────────┐
                    │  SQLite     │──────▶│ TelegramNotifier │
                    │ scans /     │       │ (alerts, summary,│
-                   │ assets /    │       │   PDF reports)   │
-                   │ findings    │       └──────────────────┘
-                   └─────────────┘
+                   │ assets /    │       │ change detection,│
+                   │ findings    │       │   PDF reports)   │
+                   └─────────────┘       └──────────────────┘
 ```
 
 **Hard architectural rules** (enforced in code, see `.kiro/steering`):
@@ -122,7 +127,11 @@ cp .env.example .env
 #   VANGUARDX_TELEGRAM_CHAT_ID=...
 
 docker compose build
+# One-shot scan (RECON: nmap, theHarvester, subfinder, whatweb, wafw00f in parallel):
 docker compose run --rm core scan --target your-target.example.com --scope external
+
+# Continuous monitoring (re-scans every 24h, alerts on new/removed assets):
+docker compose run --rm core monitor -t your-target.example.com -i 24
 ```
 
 The first run will create `./data/vanguard.db` (SQLite) and emit a summary on
@@ -201,7 +210,7 @@ tests/             # Pytest suite + fixtures (≥80% coverage gate)
 
 | Phase | Months | Theme                            |
 | ----- | ------ | -------------------------------- |
-| 1     | 1-2    | RECON foundation **(in progress, this release)** |
+| 1     | 1-2    | RECON foundation **(complete: 5 tools, parallel exec, change detection, continuous monitoring)** |
 | 2     | 3-4    | ATTACK engine (Nuclei, Gobuster, scope-aware exploitation) |
 | 3     | 5-7    | ANALYZE — Claude Opus reasoning loop, false-positive memory |
 | 4     | 8      | REPORT — Jinja2 + WeasyPrint, NIS2 control mapping |

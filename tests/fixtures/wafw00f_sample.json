@@ -1,0 +1,9 @@
+[
+  {
+    "url": "http://example.com",
+    "detected": true,
+    "trigger_url": "http://example.com/?random_url",
+    "firewall": "Cloudflare",
+    "manufacturer": "Cloudflare Inc."
+  }
+]

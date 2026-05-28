@@ -22,7 +22,7 @@ import httpx
 
 from vanguard_x.config import Settings
 from vanguard_x.logging_setup import get_logger
-from vanguard_x.models import ScanStatus, ScanSummary, Severity
+from vanguard_x.models import AssetIdentity, ScanDiff, ScanStatus, ScanSummary, Severity
 
 _log = get_logger(__name__)
 
@@ -99,6 +99,23 @@ class TelegramNotifier:
     async def send_summary(self, summary: ScanSummary) -> bool:
         """Send a structured scan summary."""
         return await self._post_message(self._render_summary(summary))
+
+    async def send_change_alert(self, diff: ScanDiff) -> bool:
+        """Send a structured cross-scan change alert.
+
+        No-op (returns ``False``) when the diff is the baseline scan or has
+        no changes — :class:`ContinuousMonitor` should rely on this so the
+        first scan of a new target does not page the operator.
+        """
+        if diff.is_baseline or not diff.has_changes:
+            _log.debug(
+                "telegram.change_alert_skipped",
+                scan_id=diff.scan_id,
+                is_baseline=diff.is_baseline,
+                has_changes=diff.has_changes,
+            )
+            return False
+        return await self._post_message(self._render_change_alert(diff))
 
     async def send_report_file(self, path: Path, *, caption: str = "") -> bool:
         """Upload a report artefact (PDF / HTML) as a Telegram document."""
@@ -191,6 +208,52 @@ class TelegramNotifier:
             lines.append(f"Completed: {_fmt_dt(s.completed_at)}")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _render_change_alert(diff: ScanDiff) -> str:
+        """Render a :class:`ScanDiff` for Telegram (HTML mode)."""
+        lines: list[str] = [
+            "<b>VANGUARD-X CHANGE DETECTED</b>",
+            f"Target: <code>{html.escape(diff.target)}</code>",
+            f"Scan: <code>{diff.scan_id}</code> (vs <code>{diff.previous_scan_id}</code>)",
+            f"New assets: <b>{len(diff.new)}</b>  Removed assets: <b>{len(diff.removed)}</b>",
+        ]
+        if diff.new:
+            lines.append("")
+            lines.append("<b>+ New:</b>")
+            lines.extend(_render_asset_lines(diff.new, prefix="+ "))
+        if diff.removed:
+            lines.append("")
+            lines.append("<b>- Removed:</b>")
+            lines.extend(_render_asset_lines(diff.removed, prefix="- "))
+        return "\n".join(lines)
+
+
+def _render_asset_lines(
+    assets: list[AssetIdentity],
+    *,
+    prefix: str,
+    cap: int = 25,
+) -> list[str]:
+    """Format a sorted asset list with a per-message cap to stay under 4 KiB."""
+    grouped: dict[str, list[AssetIdentity]] = {}
+    for a in assets:
+        grouped.setdefault(a.asset_type.value, []).append(a)
+
+    out: list[str] = []
+    rendered = 0
+    for asset_type in sorted(grouped):
+        items = grouped[asset_type]
+        out.append(f"  <i>{html.escape(asset_type)}</i> ({len(items)})")
+        for a in items:
+            if rendered >= cap:
+                remaining = sum(len(v) for v in grouped.values()) - rendered
+                if remaining > 0:
+                    out.append(f"  ... and {remaining} more")
+                return out
+            out.append(f"  {prefix}<code>{html.escape(a.value)}</code>")
+            rendered += 1
+    return out
 
 
 def _fmt_dt(dt: datetime) -> str:

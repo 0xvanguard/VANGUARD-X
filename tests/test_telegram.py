@@ -140,3 +140,106 @@ def test_from_settings_factory():
     )
     notifier = TelegramNotifier.from_settings(settings)
     assert notifier.enabled
+
+
+# -----------------------------------------------------------------------------
+# Change alerts (Month 2)
+# -----------------------------------------------------------------------------
+def _diff(*, baseline: bool = False, new: int = 1, removed: int = 0):
+    from vanguard_x.models import AssetIdentity, AssetType, ScanDiff
+
+    return ScanDiff(
+        scan_id=2,
+        target="example.com",
+        previous_scan_id=None if baseline else 1,
+        new=[
+            AssetIdentity(
+                asset_type=AssetType.SUBDOMAIN,
+                value=f"new{i}.example.com",
+                source_tool="subfinder",
+            )
+            for i in range(new)
+        ],
+        removed=[
+            AssetIdentity(
+                asset_type=AssetType.PORT,
+                value=f"1.2.3.4:{8000 + i}/tcp",
+                source_tool="nmap",
+            )
+            for i in range(removed)
+        ],
+    )
+
+
+async def test_send_change_alert_renders_new_and_removed():
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.read().decode()
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(bot_token="t", chat_id="c", client=client)
+
+    diff = _diff(new=2, removed=1)
+    ok = await notifier.send_change_alert(diff)
+    assert ok is True
+
+    body = captured["body"]
+    assert "CHANGE DETECTED" in body
+    assert "new0.example.com" in body
+    assert "1.2.3.4:8000/tcp" in body
+    await notifier.aclose()
+
+
+async def test_send_change_alert_skipped_for_baseline():
+    """Baseline scans must never trigger a Telegram notification."""
+    sent = False
+
+    def handler(_request):  # type: ignore[no-untyped-def]
+        nonlocal sent
+        sent = True
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(bot_token="t", chat_id="c", client=client)
+
+    ok = await notifier.send_change_alert(_diff(baseline=True))
+    assert ok is False
+    assert sent is False  # transport was not invoked
+    await notifier.aclose()
+
+
+async def test_send_change_alert_skipped_when_no_changes():
+    sent = False
+
+    def handler(_request):  # type: ignore[no-untyped-def]
+        nonlocal sent
+        sent = True
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(bot_token="t", chat_id="c", client=client)
+
+    ok = await notifier.send_change_alert(_diff(new=0, removed=0))
+    assert ok is False
+    assert sent is False
+    await notifier.aclose()
+
+
+async def test_send_change_alert_caps_long_lists():
+    """Too many changes get a `... and N more` tail to stay under Telegram's 4 KiB cap."""
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.read().decode()
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(bot_token="t", chat_id="c", client=client)
+
+    await notifier.send_change_alert(_diff(new=200))
+    body = captured["body"]
+    assert "more" in body  # the truncation marker is rendered
+    assert len(body) < 8192  # Telegram cap is 4096; we trim well under
+    await notifier.aclose()

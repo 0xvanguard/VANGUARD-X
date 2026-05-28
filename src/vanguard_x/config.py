@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     tool_runner: ToolRunnerKind = Field(default=ToolRunnerKind.LOCAL)
     nmap_container: str = Field(default="vanguardx-nmap")
     harvester_container: str = Field(default="vanguardx-harvester")
+    subfinder_container: str = Field(default="vanguardx-subfinder")
+    whatweb_container: str = Field(default="vanguardx-whatweb")
+    wafw00f_container: str = Field(default="vanguardx-wafw00f")
     tool_timeout_seconds: int = Field(default=600, ge=1, le=7200)
 
     # -- Telegram ------------------------------------------------------------

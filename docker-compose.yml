@@ -37,6 +37,9 @@ services:
       VANGUARDX_DATA_DIR: /data
       VANGUARDX_NMAP_CONTAINER: vanguardx-nmap
       VANGUARDX_HARVESTER_CONTAINER: vanguardx-harvester
+      VANGUARDX_SUBFINDER_CONTAINER: vanguardx-subfinder
+      VANGUARDX_WHATWEB_CONTAINER: vanguardx-whatweb
+      VANGUARDX_WAFW00F_CONTAINER: vanguardx-wafw00f
     volumes:
       - vanguardx_data:/data
       # Read-only docker socket: only needed when TOOL_RUNNER=docker_exec.
@@ -49,6 +52,12 @@ services:
       nmap:
         condition: service_healthy
       theharvester:
+        condition: service_healthy
+      subfinder:
+        condition: service_healthy
+      whatweb:
+        condition: service_healthy
+      wafw00f:
         condition: service_healthy
     deploy:
       resources:
@@ -126,6 +135,100 @@ services:
       - ALL
     healthcheck:
       test: ["CMD", "theHarvester", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Isolated Subfinder container
+  # ---------------------------------------------------------------------------
+  subfinder:
+    build:
+      context: ./docker
+      dockerfile: subfinder.Dockerfile
+    image: vanguardx/subfinder:0.1.0
+    container_name: vanguardx-subfinder
+    restart: unless-stopped
+    networks:
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+      - /home/vanguard:size=32M,mode=0700,uid=10004,gid=10004
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "subfinder", "-version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Isolated WhatWeb container
+  # ---------------------------------------------------------------------------
+  whatweb:
+    build:
+      context: ./docker
+      dockerfile: whatweb.Dockerfile
+    image: vanguardx/whatweb:0.1.0
+    container_name: vanguardx-whatweb
+    restart: unless-stopped
+    networks:
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "whatweb", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Isolated wafw00f container
+  # ---------------------------------------------------------------------------
+  wafw00f:
+    build:
+      context: ./docker
+      dockerfile: wafw00f.Dockerfile
+    image: vanguardx/wafw00f:0.1.0
+    container_name: vanguardx-wafw00f
+    restart: unless-stopped
+    networks:
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wafw00f", "--help"]
       interval: 30s
       timeout: 10s
       retries: 3

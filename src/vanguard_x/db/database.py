@@ -226,6 +226,29 @@ class ScanRepository:
         async with self._db.session() as s:
             return await s.get(ScanRow, scan_id)
 
+    async def previous_completed_scan(
+        self,
+        *,
+        target: str,
+        before_scan_id: int,
+    ) -> ScanRow | None:
+        """Most recent ``DONE`` scan for ``target`` with id < ``before_scan_id``.
+
+        Returns ``None`` if no such scan exists — the caller treats that
+        as the baseline-scan case.
+        """
+        async with self._db.session() as s:
+            stmt = (
+                select(ScanRow)
+                .where(ScanRow.target == target)
+                .where(ScanRow.status == ScanStatus.DONE.value)
+                .where(ScanRow.id < before_scan_id)
+                .order_by(ScanRow.id.desc())
+                .limit(1)
+            )
+            res = await s.execute(stmt)
+            return res.scalars().first()
+
     async def list_assets(self, scan_id: int) -> list[AssetRow]:
         async with self._db.session() as s:
             stmt = select(AssetRow).where(AssetRow.scan_id == scan_id)

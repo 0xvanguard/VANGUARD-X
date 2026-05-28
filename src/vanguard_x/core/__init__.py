@@ -6,6 +6,7 @@ depend on them in turn — keeping the dependency graph one-way.
 
 from __future__ import annotations
 
+from vanguard_x.core.changes import ChangeDetector
 from vanguard_x.core.runners import (
     CommandResult,
     CommandRunner,
@@ -17,6 +18,7 @@ from vanguard_x.core.runners import (
 from vanguard_x.core.scope import ScopeEnforcer, ScopeViolation
 
 __all__ = [
+    "ChangeDetector",
     "CommandResult",
     "CommandRunner",
     "DockerExecRunner",
