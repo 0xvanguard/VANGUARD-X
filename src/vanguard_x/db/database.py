@@ -261,6 +261,53 @@ class ScanRepository:
             res = await s.execute(stmt)
             return list(res.scalars().all())
 
+    async def save_attack_result(
+        self, scan_id: int, findings: Iterable[Finding], assets: Iterable[Asset]
+    ) -> tuple[int, int]:
+        """Persist attack findings and assets in one call.
+
+        Returns (findings_written, assets_written).
+        """
+        f_count = await self.persist_findings(scan_id, findings)
+        a_count = await self.persist_assets(scan_id, assets)
+        return f_count, a_count
+
+    async def get_attack_results(self, scan_id: int) -> tuple[list[FindingRow], list[AssetRow]]:
+        """Return (findings, assets) for a scan."""
+        findings = await self.list_findings(scan_id)
+        assets = await self.list_assets(scan_id)
+        return findings, assets
+
+    async def get_findings_by_severity(
+        self, severity: Severity, *, limit: int = 100
+    ) -> list[FindingRow]:
+        """Query findings by severity across all scans."""
+        async with self._db.session() as s:
+            stmt = (
+                select(FindingRow)
+                .where(FindingRow.severity == severity.value)
+                .order_by(FindingRow.discovered_at.desc())
+                .limit(limit)
+            )
+            res = await s.execute(stmt)
+            return list(res.scalars().all())
+
+    async def get_pipeline_results(self, target: str) -> list[ScanSummary]:
+        """Return scan summaries for a target, ordered by most recent first."""
+        async with self._db.session() as s:
+            stmt = (
+                select(ScanRow)
+                .where(ScanRow.target == target)
+                .order_by(ScanRow.started_at.desc())
+            )
+            res = await s.execute(stmt)
+            scans = list(res.scalars().all())
+
+        summaries: list[ScanSummary] = []
+        for scan in scans:
+            summaries.append(await self.scan_summary(scan.id))
+        return summaries
+
     async def scan_summary(self, scan_id: int) -> ScanSummary:
         """Aggregate a scan into a :class:`ScanSummary` for notifications."""
         async with self._db.session() as s:

@@ -22,7 +22,7 @@ import httpx
 
 from vanguard_x.config import Settings
 from vanguard_x.logging_setup import get_logger
-from vanguard_x.models import AssetIdentity, ScanDiff, ScanStatus, ScanSummary, Severity
+from vanguard_x.models import AssetIdentity, Finding, ScanDiff, ScanStatus, ScanSummary, Severity
 
 _log = get_logger(__name__)
 
@@ -116,6 +116,16 @@ class TelegramNotifier:
             )
             return False
         return await self._post_message(self._render_change_alert(diff))
+
+    async def send_critical_alert(self, finding: Finding) -> bool:
+        """Send an alert for HIGH or CRITICAL severity findings.
+
+        No-op for findings below HIGH severity.
+        """
+        if finding.severity not in (Severity.HIGH, Severity.CRITICAL):
+            _log.debug("telegram.critical_alert_skipped", severity=finding.severity.value)
+            return False
+        return await self._post_message(self._render_critical_finding(finding))
 
     async def send_report_file(self, path: Path, *, caption: str = "") -> bool:
         """Upload a report artefact (PDF / HTML) as a Telegram document."""
@@ -226,6 +236,27 @@ class TelegramNotifier:
             lines.append("")
             lines.append("<b>- Removed:</b>")
             lines.extend(_render_asset_lines(diff.removed, prefix="- "))
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_critical_finding(finding: Finding) -> str:
+        """Render a critical finding for Telegram HTML."""
+        emoji = _SEVERITY_EMOJI.get(finding.severity, "!")
+        lines: list[str] = [
+            f"<b>{html.escape(emoji)} CRITICAL FINDING</b>",
+            f"Severity: <b>{html.escape(finding.severity.value.upper())}</b>",
+            f"Title: <code>{html.escape(finding.title)}</code>",
+        ]
+        if finding.cve:
+            lines.append(f"CVE: <code>{html.escape(finding.cve)}</code>")
+        lines.append(f"Tool: <code>{html.escape(finding.source_tool)}</code>")
+        if finding.description:
+            lines.append(f"Description: {html.escape(finding.description[:200])}")
+        if finding.evidence:
+            evidence_str = ", ".join(
+                f"{k}={v}" for k, v in list(finding.evidence.items())[:3]
+            )
+            lines.append(f"Evidence: <code>{html.escape(evidence_str[:200])}</code>")
         return "\n".join(lines)
 
 
