@@ -11,7 +11,7 @@
 </p>
 
 > **Mission.** Democratise continuous pentesting for SMBs that cannot afford
-> €15K-€90K/year manual engagements — without compromising on the ethical
+> €15K-€90K/year manual engagements - without compromising on the ethical
 > guardrails of professional offensive security.
 >
 > **Misión.** Democratizar el pentesting continuo para PYMEs que no pueden
@@ -24,6 +24,7 @@
 
 - [What VANGUARD-X is](#what-vanguard-x-is) · [Qué es](#qué-es-vanguard-x)
 - [Architecture (Phase 1)](#architecture-phase-1)
+- [Month 3: Attack Engine](#month-3-attack-engine)
 - [Quick start](#quick-start) · [Inicio rápido](#inicio-rápido)
 - [Configuration](#configuration) · [Configuración](#configuración)
 - [Development](#development)
@@ -35,7 +36,7 @@
 ## What VANGUARD-X is
 
 VANGUARD-X is an open-source platform built around four specialised AI agents
-— **RECON**, **ATTACK**, **ANALYZE**, **REPORT** — coordinated by a Python
+- **RECON**, **ATTACK**, **ANALYZE**, **REPORT** - coordinated by a Python
 core. The reasoning engine is Claude Opus (with Ollama / Mistral as offline
 fallback) and every external tool runs in an isolated, hardened container.
 
@@ -45,8 +46,8 @@ escalates only what a human analyst really needs to look at.
 
 ### Qué es VANGUARD-X
 
-Plataforma open-source con cuatro agentes IA especializados — RECON, ATTACK,
-ANALYZE, REPORT — orquestados por un núcleo Python. El motor de razonamiento
+Plataforma open-source con cuatro agentes IA especializados - RECON, ATTACK,
+ANALYZE, REPORT - orquestados por un núcleo Python. El motor de razonamiento
 es Claude Opus (con Ollama / Mistral como fallback offline) y cada
 herramienta externa corre en un contenedor aislado y endurecido.
 
@@ -57,6 +58,7 @@ herramienta externa corre en un contenedor aislado y endurecido.
 ```text
                   ┌──────────────────────────────────────────────┐
                   │  CLI: vanguard-x scan --target example.com   │
+                  │       vanguard-x pipeline --target ...       │
                   └──────────────────────┬───────────────────────┘
                                          ▼
                             ┌───────────────────────┐
@@ -64,28 +66,27 @@ herramienta externa corre en un contenedor aislado y endurecido.
                             │   (safety boundary)   │
                             └──────────┬────────────┘
                                        ▼
-                            ┌───────────────────────┐
-                            │     ReconAgent        │
-                            │ (parallel via gather) │
-                            └──────────┬────────────┘
-            ┌──────────────────────────┼──────────────────────────┐
-            ▼                          ▼                          ▼
-      ┌───────────┐             ┌──────────────┐           ┌──────────────┐
-      │  Nmap     │             │ theHarvester │           │  Subfinder   │
-      │ wrapper   │             │   wrapper    │           │   wrapper    │
-      └─────┬─────┘             └──────┬───────┘           └──────┬───────┘
-            │                          │                          │
-            ▼                          ▼                          ▼
-      ┌───────────┐             ┌──────────────┐           ┌──────────────┐
-      │  WhatWeb  │             │   wafw00f    │           │ (Phase 2:    │
-      │ wrapper   │             │   wrapper    │           │  attack)     │
-      └─────┬─────┘             └──────┬───────┘           └──────────────┘
+                       ┌───────────────────────────────────┐
+                       │      PipelineOrchestrator         │
+                       │  (chains Recon -> Attack phases)  │
+                       └──────────┬──────────┬─────────────┘
+                                  │          │
+                 ┌────────────────┘          └────────────────┐
+                 ▼                                            ▼
+      ┌───────────────────────┐                   ┌───────────────────────┐
+      │     ReconAgent        │                   │     AttackAgent       │
+      │ (parallel via gather) │                   │ (parallel via gather) │
+      └──────────┬────────────┘                   └──────────┬────────────┘
+  ┌──────┬───────┼───────┬──────┐                    ┌───────┴───────┐
+  ▼      ▼       ▼       ▼      ▼                    ▼               ▼
+┌────┐┌──────┐┌───────┐┌─────┐┌──────┐        ┌──────────┐   ┌──────────┐
+│Nmap││Subfndr││Harvstr││WhtWb││wafw00f│        │  Nuclei  │   │ Gobuster │
+└────┘└──────┘└───────┘└─────┘└──────┘        └──────────┘   └──────────┘
             │     CommandRunner        │
             │  ┌─────────────────────┐ │
             └──┤ LocalRunner (dev)   │─┘
                │ DockerExecRunner    │
-               │  → vanguardx-nmap   │
-               │  → vanguardx-harv.  │
+               │  → 8 tool containers│
                └─────────────────────┘
                           │
                           ▼
@@ -93,20 +94,94 @@ herramienta externa corre en un contenedor aislado y endurecido.
                    │  SQLite     │──────▶│ TelegramNotifier │
                    │ scans /     │       │ (alerts, summary,│
                    │ assets /    │       │ change detection,│
-                   │ findings    │       │   PDF reports)   │
+                   │ findings    │       │ critical alerts) │
                    └─────────────┘       └──────────────────┘
 ```
+
+**Docker services (8 containers):**
+
+| Service         | Image                    | Purpose                          |
+| --------------- | ------------------------ | -------------------------------- |
+| `core`          | `vanguardx-core`         | Python orchestrator + CLI        |
+| `nmap`          | `vanguardx-nmap`         | Port & service scanning          |
+| `theharvester`  | `vanguardx-theharvester` | OSINT email/subdomain harvesting |
+| `subfinder`     | `vanguardx-subfinder`    | Passive subdomain enumeration    |
+| `whatweb`       | `vanguardx-whatweb`      | Web technology fingerprinting    |
+| `wafw00f`       | `vanguardx-wafw00f`      | WAF detection                    |
+| `nuclei`        | `vanguardx-nuclei`       | Vulnerability scanning (JSONL)   |
+| `gobuster`      | `vanguardx-gobuster`     | Directory brute-forcing          |
 
 **Hard architectural rules** (enforced in code, see `.kiro/steering`):
 
 1. The `ScopeEnforcer` is **default-deny**: an empty authorised list rejects
    every target.
-2. Every tool wrapper is `CommandRunner`-agnostic — same code runs locally
+2. Every tool wrapper is `CommandRunner`-agnostic - same code runs locally
    and inside hardened Docker containers.
 3. No agent ever passes raw tool output to an LLM (Phase 3 onwards): a
    structuring step is mandatory.
 4. Every container runs as a non-root user with `cap_drop: ALL` + only the
    capabilities its tool truly needs.
+
+---
+
+## Month 3: Attack Engine
+
+Month 3 introduces automated vulnerability scanning that runs after
+reconnaissance. The **PipelineOrchestrator** chains the ReconAgent and
+AttackAgent into a single Recon -> Attack flow: first, the recon phase
+discovers assets and subdomains; then, the attack phase probes those
+targets for known vulnerabilities and hidden directories.
+
+### New tools
+
+| Tool       | Description                                                                 |
+| ---------- | --------------------------------------------------------------------------- |
+| **Nuclei** | Template-based vulnerability scanner from ProjectDiscovery. Outputs JSONL.  |
+| **Gobuster** | Directory and file brute-forcing tool for discovering hidden web paths.    |
+
+### Pipeline concept
+
+```text
+vanguard-x pipeline --target example.com
+
+  1. ReconAgent runs all 5 recon tools in parallel
+  2. Results are persisted (subdomains, ports, technologies)
+  3. AttackAgent receives discovered targets
+  4. Nuclei + Gobuster run in parallel against each target
+  5. Findings are stored with severity (info / low / medium / high / critical)
+  6. HIGH and CRITICAL findings trigger Telegram alerts immediately
+```
+
+The pipeline is scope-aware: every target passed from recon to attack is
+re-validated by the ScopeEnforcer before any tool executes.
+
+### Critical finding alerts
+
+When Nuclei detects a HIGH or CRITICAL severity vulnerability, the
+TelegramNotifier sends an immediate alert with:
+
+- Target and matched template ID
+- Severity level and vulnerability name
+- Matched URL or endpoint
+
+This ensures the security team is notified in real time for urgent issues,
+without waiting for the full scan to complete.
+
+### New CLI subcommands
+
+```bash
+# Run the full Recon -> Attack pipeline
+vanguard-x pipeline --target example.com
+
+# Run attack agent directly on specific targets
+vanguard-x attack --target api.example.com --target www.example.com
+
+# List findings filtered by severity
+vanguard-x findings --severity critical --limit 20
+
+# View scan history for a target
+vanguard-x history --target example.com
+```
 
 ---
 
@@ -129,6 +204,9 @@ cp .env.example .env
 docker compose build
 # One-shot scan (RECON: nmap, theHarvester, subfinder, whatweb, wafw00f in parallel):
 docker compose run --rm core scan --target your-target.example.com --scope external
+
+# Full pipeline (Recon -> Attack: recon + nuclei + gobuster):
+docker compose run --rm core pipeline --target your-target.example.com
 
 # Continuous monitoring (re-scans every 24h, alerts on new/removed assets):
 docker compose run --rm core monitor -t your-target.example.com -i 24
@@ -166,8 +244,8 @@ All configuration lives in environment variables (`.env` is auto-loaded). See
 | `VANGUARDX_AUTHORIZED_TARGETS`    | Comma-separated allow-list of domains / IPs / CIDRs (**required**) |
 | `VANGUARDX_TOOL_RUNNER`           | `local` (default) or `docker_exec` (production)              |
 | `VANGUARDX_DATABASE_URL`          | `sqlite+aiosqlite://...` (dev) or `postgresql+asyncpg://...` |
-| `VANGUARDX_TELEGRAM_BOT_TOKEN`    | Optional — leave blank to disable notifications              |
-| `VANGUARDX_TELEGRAM_CHAT_ID`      | Optional — paired with the token                             |
+| `VANGUARDX_TELEGRAM_BOT_TOKEN`    | Optional - leave blank to disable notifications              |
+| `VANGUARDX_TELEGRAM_CHAT_ID`      | Optional - paired with the token                             |
 | `VANGUARDX_TOOL_TIMEOUT_SECONDS`  | Per-tool execution timeout (default 600)                     |
 
 ### Configuración
@@ -191,17 +269,19 @@ Repository layout:
 
 ```text
 src/vanguard_x/
-├── agents/        # ReconAgent (Phase 2-4 add Attack/Analyze/Report)
+├── agents/        # ReconAgent, AttackAgent
 ├── core/          # ScopeEnforcer, CommandRunner abstractions
 ├── db/            # SQLAlchemy 2.0 schema + async repository
-├── notifications/ # Telegram notifier
-├── tools/         # Nmap & theHarvester wrappers
+├── notifications/ # Telegram notifier (summaries + critical alerts)
+├── tools/         # Nmap, theHarvester, Subfinder, WhatWeb, wafw00f, Nuclei, Gobuster
 ├── config.py
 ├── logging_setup.py
 ├── models.py
-└── __main__.py    # Typer CLI
-docker/            # Hardened tool images (nmap, theHarvester)
-tests/             # Pytest suite + fixtures (≥80% coverage gate)
+├── pipeline.py    # PipelineOrchestrator (Recon -> Attack chaining)
+├── scheduler.py
+└── __main__.py    # Typer CLI (scan, pipeline, attack, findings, history)
+docker/            # Hardened tool images (nmap, theHarvester, subfinder, whatweb, wafw00f, nuclei, gobuster)
+tests/             # Pytest suite + fixtures (>=80% coverage gate)
 ```
 
 ---
@@ -211,9 +291,9 @@ tests/             # Pytest suite + fixtures (≥80% coverage gate)
 | Phase | Months | Theme                            |
 | ----- | ------ | -------------------------------- |
 | 1     | 1-2    | RECON foundation **(complete: 5 tools, parallel exec, change detection, continuous monitoring)** |
-| 2     | 3-4    | ATTACK engine (Nuclei, Gobuster, scope-aware exploitation) |
-| 3     | 5-7    | ANALYZE — Claude Opus reasoning loop, false-positive memory |
-| 4     | 8      | REPORT — Jinja2 + WeasyPrint, NIS2 control mapping |
+| 2     | 3-4    | ATTACK engine **(Month 3 complete: Nuclei, Gobuster, pipeline orchestrator, critical alerts)** |
+| 3     | 5-7    | ANALYZE - Claude Opus reasoning loop, false-positive memory |
+| 4     | 8      | REPORT - Jinja2 + WeasyPrint, NIS2 control mapping |
 | 5     | 9-10   | Orchestrator + production hardening, FastAPI control plane |
 | 6     | 11-12  | Dashboard UI, demo mode, monetisation prep |
 
@@ -249,4 +329,4 @@ objetivo declarado en `VANGUARDX_AUTHORIZED_TARGETS`.
 
 ## License
 
-[MIT](LICENSE) — © 2026 John Sebastian Camargo (`@0xvanguard`).
+[MIT](LICENSE) - © 2026 John Sebastian Camargo (`@0xvanguard`).

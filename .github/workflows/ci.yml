@@ -107,3 +107,23 @@ jobs:
 
       - name: docker compose config (validate YAML)
         run: docker compose -f docker-compose.yml config --quiet
+
+  # ---------------------------------------------------------------------------
+  security:
+    name: Dockerfile security (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Scan Dockerfiles
+        run: |
+          trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
+          trivy config --severity HIGH,CRITICAL --exit-code 1 docker/
