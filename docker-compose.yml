@@ -304,6 +304,34 @@ services:
       retries: 3
       start_period: 10s
 
+  # ---------------------------------------------------------------------------
+  # Analyze agent (LLM-based analysis)
+  # ---------------------------------------------------------------------------
+  analyze:
+    build:
+      context: .
+      dockerfile: docker/analyze.Dockerfile
+    image: vanguardx/analyze:0.1.0
+    container_name: vanguardx-analyze
+    restart: unless-stopped
+    environment:
+      VANGUARDX_ANTHROPIC_API_KEY: ${VANGUARDX_ANTHROPIC_API_KEY:-}
+      VANGUARDX_DATABASE_URL: "sqlite+aiosqlite:///data/vanguard.db"
+    volumes:
+      - vanguardx_data:/data
+    networks:
+      - vanguardx_internal
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 # =============================================================================
 volumes:
   vanguardx_data:

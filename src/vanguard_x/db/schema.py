@@ -169,3 +169,19 @@ class ReportRow(Base):
     generated_at: Mapped[datetime] = mapped_column(UTCDateTime)
 
     scan: Mapped[ScanRow] = relationship(back_populates="reports")
+
+
+# -----------------------------------------------------------------------------
+class AnalysisReportRow(Base):
+    """LLM analysis report produced by the analysis engine (Phase 3)."""
+
+    __tablename__ = "analysis_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    target: Mapped[str] = mapped_column(String(255), index=True)
+    scan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scans.id", ondelete="SET NULL"), nullable=True
+    )
+    run_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    report_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    generated_at: Mapped[datetime] = mapped_column(UTCDateTime)

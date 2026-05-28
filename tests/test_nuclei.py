@@ -116,20 +116,22 @@ def test_unknown_severity_defaults_to_info(nuclei):
 
     from tests.conftest import make_command_result
 
-    line = json.dumps({
-        "template-id": "custom-check",
-        "info": {
-            "name": "Custom Check",
-            "severity": "unknown_level",
-            "description": "Test",
-            "reference": [],
-        },
-        "matched-at": "https://example.com/test",
-        "matcher-name": "test",
-        "type": "http",
-        "host": "https://example.com",
-        "timestamp": "2024-01-15T10:00:00Z",
-    })
+    line = json.dumps(
+        {
+            "template-id": "custom-check",
+            "info": {
+                "name": "Custom Check",
+                "severity": "unknown_level",
+                "description": "Test",
+                "reference": [],
+            },
+            "matched-at": "https://example.com/test",
+            "matcher-name": "test",
+            "type": "http",
+            "host": "https://example.com",
+            "timestamp": "2024-01-15T10:00:00Z",
+        }
+    )
     parsed = nuclei.parse("example.com", make_command_result(stdout=line))
     assert len(parsed.findings) == 1
     assert parsed.findings[0].severity is Severity.INFO

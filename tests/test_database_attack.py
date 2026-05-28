@@ -70,8 +70,7 @@ async def test_get_findings_by_severity(repository):
 async def test_get_findings_by_severity_limit(repository):
     scan_id = await repository.create_scan(target="example.com", agent="attack")
     findings = [
-        Finding(severity=Severity.HIGH, title=f"F{i}", source_tool="nuclei")
-        for i in range(10)
+        Finding(severity=Severity.HIGH, title=f"F{i}", source_tool="nuclei") for i in range(10)
     ]
     await repository.persist_findings(scan_id, findings)
 
