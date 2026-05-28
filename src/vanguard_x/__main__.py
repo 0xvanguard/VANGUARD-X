@@ -5,13 +5,17 @@ Subcommands::
     vanguard-x version
     vanguard-x config
     vanguard-x init-db
-    vanguard-x scan --target example.com --scope external
+    vanguard-x scan    --target example.com [--scope external]
+    vanguard-x monitor --target example.com [--target other.com]
+                       [--interval-hours 24] [--scope external]
 """
 
 from __future__ import annotations
 
 import asyncio
+import signal
 import sys
+from datetime import timedelta
 
 import typer
 from rich.console import Console
@@ -20,13 +24,18 @@ from rich.table import Table
 from vanguard_x import __version__
 from vanguard_x.agents.recon import ReconAgent
 from vanguard_x.config import Settings, get_settings
+from vanguard_x.core.changes import ChangeDetector
 from vanguard_x.core.runners import build_runner
 from vanguard_x.core.scope import ScopeEnforcer, ScopeViolation
 from vanguard_x.db.database import Database, ScanRepository
 from vanguard_x.logging_setup import configure_logging, get_logger
 from vanguard_x.notifications.telegram import TelegramNotifier
+from vanguard_x.scheduler import ContinuousMonitor
 from vanguard_x.tools.harvester import HarvesterWrapper
 from vanguard_x.tools.nmap import NmapWrapper
+from vanguard_x.tools.subfinder import SubfinderWrapper
+from vanguard_x.tools.wafw00f import WafW00fWrapper
+from vanguard_x.tools.whatweb import WhatWebWrapper
 
 app = typer.Typer(
     name="vanguard-x",
@@ -113,33 +122,148 @@ def cmd_scan(
     )
 
 
+# -----------------------------------------------------------------------------
+@app.command("monitor")
+def cmd_monitor(
+    targets: list[str] = typer.Option(  # noqa: B008 — idiomatic Typer pattern for repeatable options
+        ...,
+        "--target",
+        "-t",
+        help="One or more authorised targets (repeatable). e.g. -t a.com -t b.com",
+    ),
+    interval_hours: float = typer.Option(
+        None,
+        "--interval-hours",
+        "-i",
+        help=(
+            "Interval between recon runs per target. "
+            "Defaults to VANGUARDX_RECON_INTERVAL_HOURS (24h)."
+        ),
+    ),
+    scope: str = typer.Option(
+        "external", "--scope", "-s", help="Free-form scope label (audit only)."
+    ),
+) -> None:
+    """Run the RECON agent on a schedule until interrupted (Ctrl-C / SIGTERM).
+
+    The first scan of every target fires immediately; subsequent scans
+    follow ``--interval-hours``. Change-alerts are sent via Telegram when
+    new or removed assets are detected against the previous scan.
+    """
+    settings = get_settings()
+    configure_logging(settings)
+    interval = timedelta(
+        hours=interval_hours if interval_hours is not None else settings.recon_interval_hours
+    )
+    if interval.total_seconds() <= 0:
+        console.print("[red]--interval-hours must be > 0[/red]")
+        sys.exit(2)
+
+    try:
+        asyncio.run(_run_monitor(settings, targets=targets, interval=interval, scope_label=scope))
+    except KeyboardInterrupt:
+        console.print("[yellow]Monitor stopped[/yellow].")
+    except Exception as exc:
+        console.print(f"[red]Monitor failed[/red]: {exc}")
+        sys.exit(1)
+
+
+# =============================================================================
+# Async helpers (composition root)
+# =============================================================================
+def _build_recon_agent(
+    settings: Settings,
+    *,
+    repo: ScanRepository,
+    notifier: TelegramNotifier,
+) -> ReconAgent:
+    scope_enforcer = ScopeEnforcer(settings.authorized_targets_list)
+    return ReconAgent(
+        nmap=NmapWrapper(
+            runner=build_runner(settings, container=settings.nmap_container),
+            scope=scope_enforcer,
+            timeout=settings.tool_timeout_seconds,
+        ),
+        harvester=HarvesterWrapper(
+            runner=build_runner(settings, container=settings.harvester_container),
+            scope=scope_enforcer,
+            timeout=settings.tool_timeout_seconds,
+        ),
+        subfinder=SubfinderWrapper(
+            runner=build_runner(settings, container=settings.subfinder_container),
+            scope=scope_enforcer,
+            timeout=settings.tool_timeout_seconds,
+        ),
+        whatweb=WhatWebWrapper(
+            runner=build_runner(settings, container=settings.whatweb_container),
+            scope=scope_enforcer,
+            timeout=settings.tool_timeout_seconds,
+        ),
+        wafw00f=WafW00fWrapper(
+            runner=build_runner(settings, container=settings.wafw00f_container),
+            scope=scope_enforcer,
+            timeout=settings.tool_timeout_seconds,
+        ),
+        scope=scope_enforcer,
+        repository=repo,
+        notifier=notifier,
+        change_detector=ChangeDetector(repo),
+    )
+
+
 async def _run_recon(settings: Settings, *, target: str, scope_label: str):  # type: ignore[no-untyped-def]
     db = Database(settings.database_url)
     await db.create_all()
     try:
         repo = ScanRepository(db)
-        scope_enforcer = ScopeEnforcer(settings.authorized_targets_list)
-
-        nmap = NmapWrapper(
-            runner=build_runner(settings, container=settings.nmap_container),
-            scope=scope_enforcer,
-            timeout=settings.tool_timeout_seconds,
-        )
-        harvester = HarvesterWrapper(
-            runner=build_runner(settings, container=settings.harvester_container),
-            scope=scope_enforcer,
-            timeout=settings.tool_timeout_seconds,
-        )
-
         async with TelegramNotifier.from_settings(settings) as notifier:
-            agent = ReconAgent(
-                nmap=nmap,
-                harvester=harvester,
-                scope=scope_enforcer,
-                repository=repo,
-                notifier=notifier,
-            )
+            agent = _build_recon_agent(settings, repo=repo, notifier=notifier)
             return await agent.run(target, scope_label=scope_label)
+    finally:
+        await db.dispose()
+
+
+async def _run_monitor(  # type: ignore[no-untyped-def]
+    settings: Settings,
+    *,
+    targets: list[str],
+    interval: timedelta,
+    scope_label: str,
+):
+    db = Database(settings.database_url)
+    await db.create_all()
+    try:
+        repo = ScanRepository(db)
+        async with TelegramNotifier.from_settings(settings) as notifier:
+            agent = _build_recon_agent(settings, repo=repo, notifier=notifier)
+            monitor = ContinuousMonitor(
+                agent,
+                targets,
+                interval=interval,
+                scope_label=scope_label,
+            )
+
+            stop_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            for sig_name in ("SIGINT", "SIGTERM"):
+                sig = getattr(signal, sig_name, None)
+                if sig is None:
+                    continue
+                try:
+                    loop.add_signal_handler(sig, stop_event.set)
+                except NotImplementedError:
+                    # Windows — fall back to default Ctrl-C behaviour.
+                    pass
+
+            monitor.start()
+            console.print(
+                f"[green]Monitoring[/green] {len(monitor.targets)} target(s) "
+                f"every {interval.total_seconds() / 3600:.2f}h. Ctrl-C to stop."
+            )
+            try:
+                await stop_event.wait()
+            finally:
+                await monitor.shutdown(wait=True)
     finally:
         await db.dispose()
 
