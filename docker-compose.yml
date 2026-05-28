@@ -40,6 +40,8 @@ services:
       VANGUARDX_SUBFINDER_CONTAINER: vanguardx-subfinder
       VANGUARDX_WHATWEB_CONTAINER: vanguardx-whatweb
       VANGUARDX_WAFW00F_CONTAINER: vanguardx-wafw00f
+      VANGUARDX_NUCLEI_CONTAINER: vanguardx-nuclei
+      VANGUARDX_GOBUSTER_CONTAINER: vanguardx-gobuster
     volumes:
       - vanguardx_data:/data
       # Read-only docker socket: only needed when TOOL_RUNNER=docker_exec.
@@ -58,6 +60,10 @@ services:
       whatweb:
         condition: service_healthy
       wafw00f:
+        condition: service_healthy
+      nuclei:
+        condition: service_healthy
+      gobuster:
         condition: service_healthy
     deploy:
       resources:
@@ -234,6 +240,70 @@ services:
       retries: 3
       start_period: 10s
 
+  # ---------------------------------------------------------------------------
+  # Isolated Nuclei container
+  # ---------------------------------------------------------------------------
+  nuclei:
+    build:
+      context: .
+      dockerfile: docker/nuclei.Dockerfile
+    image: vanguardx/nuclei:0.1.0
+    container_name: vanguardx-nuclei
+    restart: unless-stopped
+    networks:
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+      - /home/vanguard:size=64M,mode=0700,uid=10006,gid=10006
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "nuclei", "-version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Isolated Gobuster container
+  # ---------------------------------------------------------------------------
+  gobuster:
+    build:
+      context: .
+      dockerfile: docker/gobuster.Dockerfile
+    image: vanguardx/gobuster:0.1.0
+    container_name: vanguardx-gobuster
+    restart: unless-stopped
+    networks:
+      - vanguardx_egress
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+      - /home/vanguard:size=32M,mode=0700,uid=10007,gid=10007
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "gobuster", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
 # =============================================================================
 volumes:
   vanguardx_data:
@@ -247,3 +317,4 @@ networks:
   vanguardx_egress:
     name: vanguardx_egress
     driver: bridge
+
