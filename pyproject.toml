@@ -35,6 +35,8 @@ dependencies = [
     # Continuous monitoring scheduler (Month 2 — `monitor` subcommand).
     # 3.x is stable and ships AsyncIOScheduler; 4.x is still beta.
     "apscheduler>=3.10,<4",
+    # LLM integration (Phase 3 — analysis engine).
+    "anthropic>=0.39,<1",
 ]
 
 [project.optional-dependencies]

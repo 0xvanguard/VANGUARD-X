@@ -10,6 +10,7 @@ Two responsibilities, intentionally separated:
 
 from __future__ import annotations
 
+import uuid
 from collections import Counter
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -25,9 +26,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from vanguard_x.db.schema import AssetRow, Base, FindingRow, ScanRow
+from vanguard_x.db.schema import AnalysisReportRow, AssetRow, Base, FindingRow, ScanRow
 from vanguard_x.logging_setup import get_logger
 from vanguard_x.models import (
+    AnalysisReport,
     Asset,
     Finding,
     ScanStatus,
@@ -296,9 +298,7 @@ class ScanRepository:
         """Return scan summaries for a target, ordered by most recent first."""
         async with self._db.session() as s:
             stmt = (
-                select(ScanRow)
-                .where(ScanRow.target == target)
-                .order_by(ScanRow.started_at.desc())
+                select(ScanRow).where(ScanRow.target == target).order_by(ScanRow.started_at.desc())
             )
             res = await s.execute(stmt)
             scans = list(res.scalars().all())
@@ -340,3 +340,48 @@ class ScanRepository:
                 findings_by_severity=dict(sev_counter),
                 error=scan.error,
             )
+
+    # ------------------------------------------------------------------
+    # Analysis reports (Phase 3 Month 5)
+    # ------------------------------------------------------------------
+    async def save_analysis_report(
+        self, report: AnalysisReport, *, scan_id: int | None = None
+    ) -> str:
+        """Persist an analysis report and return its unique run_id."""
+        run_id = uuid.uuid4().hex[:16]
+        row = AnalysisReportRow(
+            target=report.target,
+            scan_id=scan_id,
+            run_id=run_id,
+            report_json=report.model_dump(mode="json"),
+            generated_at=report.generated_at,
+        )
+        async with self._db.session() as s:
+            s.add(row)
+        _log.info("analysis_report.saved", run_id=run_id, target=report.target)
+        return run_id
+
+    async def get_analysis_report(self, target: str, run_id: str) -> AnalysisReport | None:
+        """Retrieve an analysis report by target and run_id."""
+        async with self._db.session() as s:
+            stmt = (
+                select(AnalysisReportRow)
+                .where(AnalysisReportRow.target == target)
+                .where(AnalysisReportRow.run_id == run_id)
+            )
+            res = await s.execute(stmt)
+            row = res.scalars().first()
+        if row is None:
+            return None
+        return AnalysisReport.model_validate(row.report_json)
+
+    async def list_analysis_reports(self, target: str) -> list[tuple[str, datetime]]:
+        """Return (run_id, generated_at) tuples for a target, newest first."""
+        async with self._db.session() as s:
+            stmt = (
+                select(AnalysisReportRow.run_id, AnalysisReportRow.generated_at)
+                .where(AnalysisReportRow.target == target)
+                .order_by(AnalysisReportRow.generated_at.desc())
+            )
+            res = await s.execute(stmt)
+            return [(row.run_id, row.generated_at) for row in res.all()]

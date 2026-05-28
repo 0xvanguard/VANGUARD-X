@@ -58,6 +58,22 @@ class FindingStatus(StrEnum):
     REMEDIATED = "remediated"
 
 
+class TriageVerdict(StrEnum):
+    """Verdict assigned by the analysis engine to a finding."""
+
+    TRUE_POSITIVE = "true_positive"
+    FALSE_POSITIVE = "false_positive"
+    NEEDS_REVIEW = "needs_review"
+
+
+class Effort(StrEnum):
+    """Estimated remediation effort."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 # -----------------------------------------------------------------------------
 # Core models
 # -----------------------------------------------------------------------------
@@ -198,3 +214,55 @@ class ScanDiff(BaseModel):
     @property
     def has_changes(self) -> bool:
         return self.total_changes > 0
+
+
+# -----------------------------------------------------------------------------
+# Analysis engine models (Phase 3 Month 5)
+# -----------------------------------------------------------------------------
+class TriageResult(BaseModel):
+    """LLM-produced triage of a single finding."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    verdict: TriageVerdict
+    confidence: int = Field(ge=0, le=100)
+    reasoning: str
+
+
+class AttackPath(BaseModel):
+    """A plausible multi-step attack path derived from findings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    steps: list[str]
+    severity: Severity
+    exploitability_score: float = Field(ge=0.0, le=1.0)
+
+
+class RemediationItem(BaseModel):
+    """A single actionable remediation recommendation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    priority: int
+    title: str
+    description: str
+    effort: Effort
+    affected_findings: list[str]
+
+
+class AnalysisReport(BaseModel):
+    """Complete analysis report produced by the analysis engine."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    generated_at: datetime
+    findings_analyzed: int
+    triage: list[TriageResult]
+    attack_paths: list[AttackPath]
+    executive_summary: str
+    remediation_plan: list[RemediationItem]
