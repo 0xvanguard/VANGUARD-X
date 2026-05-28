@@ -168,7 +168,8 @@ async def test_critical_alert_sent(fake_runner, scope, repository, monkeypatch):
     assert summary.status is ScanStatus.DONE
     # At least one critical/high alert should have been sent
     high_crit = [
-        f for f in alerts_sent
+        f
+        for f in alerts_sent
         if hasattr(f, "severity") and f.severity in (Severity.HIGH, Severity.CRITICAL)
     ]
     assert len(high_crit) >= 1

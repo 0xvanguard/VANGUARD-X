@@ -62,9 +62,7 @@ class AttackAgent:
         try:
             # Run all tools against all targets in parallel.
             tasks = [
-                self._run_tool(tool, target, scan_id)
-                for target in targets
-                for tool in self._tools
+                self._run_tool(tool, target, scan_id) for target in targets for tool in self._tools
             ]
             results = await asyncio.gather(*tasks)
 
