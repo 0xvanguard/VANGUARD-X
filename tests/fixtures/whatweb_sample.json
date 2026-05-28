@@ -1,0 +1,13 @@
+[
+  {
+    "target": "http://example.com",
+    "http_status": 200,
+    "plugins": {
+      "nginx": [{"version": ["1.18.0"], "string": ["nginx/1.18.0"]}],
+      "HTML5": [{}],
+      "Cookies": [{"string": ["session"]}],
+      "X-Powered-By": [{"string": ["PHP/8.1.2"]}],
+      "JQuery": [{"version": ["3.6.0"]}]
+    }
+  }
+]
